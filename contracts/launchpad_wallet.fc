@@ -51,7 +51,7 @@
     save_data(launchpad_address, owner_address, token_address, reward_amount, ton_invested_amount);
 }
 
-() refund(slice in_msg_body, slice sender_address) {
+() refund(slice in_msg_body, slice sender_address) impure inline {
     (slice launchpad_address, slice owner_address, slice token_address, int reward_amount, int ton_invested_amount) = load_data();
     throw_unless(ONLY_OWNER, equal_slices(sender_address, launchpad_address));
 
