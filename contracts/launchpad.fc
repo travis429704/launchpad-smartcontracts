@@ -1,0 +1,142 @@
+(slice, slice, cell, cell, cell) load_data() impure {
+    slice ds = get_data().begin_parse();
+    return (ds~load_msg_addr(), ds~load_msg_body(), ds~load_ref(), ds~load_ref(), ds~load_ref());
+}
+
+() save_data(slice owner_address, slice token_minter_address, cell launchpad_wallet_code, cell transaction_info, cell listing_info) {
+    set_data(begin_cell()
+        .store_slice(owner_address)
+        .store_slice(token_minter_address)
+        .store_ref(transaction_info)
+        .store_ref(listing_info)
+        .end_cell());
+}
+
+cell pack_transaction_info(int total_sale, int amount_sale, int total_invest, int presale_rate, int min_deposit, int max_deposit, int start_time, int end_time) impure {
+    return begin_cell()
+        .store_coins(total_sale)
+        .store_coins(amount_sale)
+        .store_coins(total_invest)
+        .store_uint(presale_rate, 32)
+        .store_coins(min_deposit)
+        .store_coins(max_deposit)
+        .store_uint(start_time, 64)
+        .store_uint(end_time, 64)
+        .end_cell();
+}
+
+(int, int, int, int, int, int, int, int) unpack_transaction_info(cell transaction_info) impure {
+    slice ds = transaction_info.begin_parse();
+    return (ds~load_coins(), ds~load_coins(), ds~load_coins(), ds~load_uint(32), ds~load_coins(), ds~load_coins(), ds~load_uint(64), ds~load_uint(64));
+}
+
+(cell) pack_listing_info(slice route_address, int listing_rate, int soft_cap, int hard_cap) {
+    return begin_cell()
+        .store_slice(route_address)
+        .store_uint(listing_rate, 32)
+        .store_coins(soft_cap)
+        .store_coins(hard_cap)
+        .end_cell();
+}
+
+(slice, int, int, int) unpack_listing_info(cell listing_info) impure {
+    slice ds = listing_info.begin_parse();
+    return (ds~load_msg_addr(), ds~load_uint(32), ds~load_coins(), ds~load_coins());
+}
+
+(int) get_token_amount(int ton_amount, int presale_rate) impure {
+    throw_unless(DEVIDE_BY_ZERO, presale_rate > 0)
+    return divc(ton_amount, presale_rate);
+}
+
+(cell) pay(cell transaction_info, cell launchpad_wallet_code, slice token_minter_address, slice sender_address, int ton_amount, slice in_msg_body) impure inline {
+    (int total_sale, int amount_sale, int total_invest, int presale_rate, int min_deposit, int max_deposit, int start_time, int end_time) = unpack_transaction_info(transaction_info);
+    throw_unless(NOT_STARTED, now() >= start_time);
+    throw_unless(END_TIME_PASSED, now() <= end_time);
+    int query_id = in_msg_body~load_uint(64);
+    int ton_invested_amount = in_msg_body~load_coins();
+    int forward_ton_amount = in_msg_body~load_coins();
+    throw_unless(NOT_ENOUGH_TON, ton_amount >= ton_invested_amount + forward_ton_amount); ;; missing fee
+    throw_unless(AMOUNT_TOO_SMALL, ton_invested_amount >= min_deposit);
+    throw_unless(AMOUNT_TOO_BIG, ton_invested_amount <= max_deposit);
+
+    int token_amount = get_token_amount(ton_amount, presale_rate);
+    throw_unless(INSUFFICENT_FUND, total_sale - amount_sale >= token_amount);
+
+    slice sender_wallet_address = calculate_user_launchpad_wallet_address(my_address(), sender_address, token_minter_address, launchpad_wallet_code);
+    var message = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(sender_wallet_address)
+        .store_coins(forward_ton_amount)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+        .store_uint(op::add_reward, 32)
+        .store_uint(query_id, 64)
+        .store_coins(token_amount)
+        .store_coins(ton_invested_amount)
+        .end_cell();
+    send_raw_message(message, 1);
+
+    total_invest += ton_amount;
+    amount_sale += token_amount;
+    return pack_transaction_info(total_sale, amount_sale, total_invest, presale_rate, min_deposit, max_deposit, start_time, end_time);
+}
+
+() claim(cell transaction_info, cell listing_info, cell launchpad_wallet_code, slice token_minter_address, slice sender_address, int ton_amount, slice in_msg_body) impure inline {
+    (int total_sale, int amount_sale, int total_invest, int presale_rate, int min_deposit, int max_deposit, int start_time, int end_time) = unpack_transaction_info(transaction_info);
+    (slice route_address, int listing_rate, int soft_cap, int hard_cap) = unpack_listing_info(listing_info);
+
+    slice sender_wallet_address = calculate_user_launchpad_wallet_address(my_address(), sender_address, token_minter_address, launchpad_wallet_code);
+    int query_id = in_msg_body~load_uint(64);
+    int op_code = ((total_invest >= soft_cap) & (total_invest <= hard_cap)) ? op::withdraw_reward : op::refund_reward;
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(sender_wallet_address)
+        .store_coins(ton_amount)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+        .store_uint(op_code, 32)
+        .store_uint(query_id, 64)
+        .end_cell();
+    send_raw_message(msg, 1);
+}
+
+() transfer(slice in_msg_body) {
+    int query_id = in_msg_body~load_uint(64);
+    slice send_to = in_msg_body~load_msg_addr();
+    int token_amount = in_msg_body~load_coins();
+    int ton_amount = in_msg_body~load_coins();
+    
+    ;; send token to send_to's wallet
+}
+
+
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if(in_msg_body.slice_empty?()) {
+        return();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    slice sender_address = cs~load_msg_addr();
+    cs~load_msg_addr(); ;; skip dst
+    int ton_amount = cs~load_coins(); 
+
+    (slice owner_address, slice token_minter_address, cell launchpad_wallet_code,  cell transaction_info, cell listing_info) = load_data();
+
+    int op = in_msg_body~load_uint(32);
+
+    if(op == op::pay) {
+        transaction_info~pay(launchpad_wallet_code, token_minter_address, sender_address, ton_amount, in_msg_body);
+    } elseif (op == op::claim) {
+        throw_unless(NOT_ENDED, now() > end_time);
+        claim(transaction_info, listing_info, launchpad_wallet_code, token_minter_address, sender_address, ton_amount, in_msg_body);
+    } elseif (op == op::transfer) {
+        transfer(in_msg_body);
+    } elseif (op == op::withdaw_ton) {
+        ;; transfer ton to owner
+    } elseif (op == op::withdraw_not_sold_token) {
+        ;; transfer not sold token to owner
+    } else {
+        throw(UNKNOWN_OP);
+    }
+}

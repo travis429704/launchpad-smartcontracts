@@ -1,0 +1,31 @@
+cell pack_launchpad_wallet_data(slice launchpad_address, slice owner_address, slice token_minter_address, int reward_amount, int ton_invested_amount) inline {
+   return  begin_cell()
+            .store_slice(launchpad_address)
+            .store_slice(owner_address)
+            .store_slice(token_minter_address)
+            .store_coins(reward_amount)
+            .store_coins(ton_invested_amount)
+           .end_cell();
+}
+
+cell calculate_launchpad_wallet_state_init(slice launchpad_address, slice owner_address, slice token_minter_address, cell launchpad_wallet_code) inline {
+  return begin_cell()
+          .store_uint(0, 2)
+          .store_dict(launchpad_wallet_code)
+          .store_dict(pack_launchpad_wallet_data(launchpad_address, owner_address, token_minter_address, 0, 0))
+          .store_uint(0, 1)
+         .end_cell();
+}
+
+slice calculate_launchpad_wallet_address(cell state_init) inline {
+  return begin_cell().store_uint(4, 3)
+                     .store_int(workchain(), 8)
+                     .store_uint(cell_hash(state_init), 256)
+                     .end_cell()
+                     .begin_parse();
+}
+
+slice calculate_user_launchpad_wallet_address(slice launchpad_address, slice owner_address, slice token_minter_address, cell launchpad_wallet_code) inline {
+  return calculate_launchpad_wallet_address(calculate_launchpad_wallet_state_init(launchpad_address, owner_address, token_minter_address, launchpad_wallet_code));
+}
+

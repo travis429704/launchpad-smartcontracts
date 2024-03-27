@@ -6,12 +6,12 @@ const WRONG_WORKCHAIN = 85;
 const DEVIDE_BY_ZERO = 86;
 const AMOUNT_TOO_SMALL = 87;
 const AMOUNT_TOO_BIG = 88;
+const NOT_ENOUGH_TON = 89;
 
 const NOT_STARTED = 700;
 const NOT_ENDED = 701;
 const END_TIME_PASSED = 702;
 const INSUFFICIENT_FUND = 703;
 const ONLY_OWNER = 704;
-const UNKNOWN_OP = 705;
 
 const WRONG_OP = 0xffff;
